@@ -4,6 +4,7 @@ from datetime import date
 import pandas as pd
 import streamlit as st
 from supabase import create_client
+from planificador import tab_planificar
 
 st.set_page_config(page_title="Entrenador", page_icon="💪", layout="centered")
 
@@ -167,8 +168,10 @@ if check_password():
         st.error("Error al leer la base de datos")
         st.code(repr(e.args))
         st.stop()
-    t1, t2 = st.tabs(["Registrar sesión", "Historial"])
-    with t1:
-        tab_registrar(ejercicios)
-    with t2:
-        tab_historial(ejercicios)
+    t1, t2, t3 = st.tabs(["Registrar sesión", "Historial", "Planificar"])
+with t1:
+    tab_registrar(ejercicios)
+with t2:
+    tab_historial(ejercicios)
+with t3:
+    tab_planificar(ejercicios, get_client())
