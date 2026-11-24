@@ -161,7 +161,12 @@ def tab_historial(ejercicios):
 # ---------- main ----------
 st.title("💪 Entrenador")
 if check_password():
-    ejercicios = cargar_ejercicios()
+    try:
+        ejercicios = cargar_ejercicios()
+    except Exception as e:
+        st.error("Error al leer la base de datos")
+        st.code(repr(e.args))
+        st.stop()
     t1, t2 = st.tabs(["Registrar sesión", "Historial"])
     with t1:
         tab_registrar(ejercicios)
