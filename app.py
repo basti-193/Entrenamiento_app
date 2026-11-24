@@ -168,10 +168,10 @@ if check_password():
         st.error("Error al leer la base de datos")
         st.code(repr(e.args))
         st.stop()
-    t1, t2, t3 = st.tabs(["Registrar sesión", "Historial", "Planificar"])
+   t1, t2, t3 = st.tabs(["Planificar", "Registrar sesión", "Historial"])
 with t1:
-    tab_registrar(ejercicios)
-with t2:
-    tab_historial(ejercicios)
-with t3:
     tab_planificar(ejercicios, get_client())
+with t2:
+    tab_registrar(ejercicios)
+with t3:
+    tab_historial(ejercicios)
