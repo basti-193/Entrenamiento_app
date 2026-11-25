@@ -4,22 +4,24 @@ from datetime import date, timedelta
 import streamlit as st
 
 DIAS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
-EQUIPO = ["barra", "paralelas", "trx", "mancuernas", "kettlebell", "maquina", "bandas", "cajon", "rueda", "cancha"]
+EQUIPO = ["barra", "paralelas", "trx", "mancuernas", "kettlebell", "maquina", "bandas", "cajon", "rueda", "cancha", "ancla"]
 ORDEN = ["pierna", "empuje", "tiron"]
 TIPO_MAP = {"tiron": "tiron", "habilidades_empuje": "empuje", "piernas_velocidad": "pierna"}
-CASA = {"mancuernas", "bandas", "cajon", "cancha", "trx", "rueda", "maquina", "kettlebell"}
+CASA = {"mancuernas", "bandas", "cajon", "cancha", "trx", "rueda", "maquina", "kettlebell", "ancla"}
 PLAZA = {"barra", "paralelas", "bandas"}
 EQ_TIPO = {"pierna": CASA, "empuje": PLAZA, "tiron": PLAZA}  # pierna en casa; empuje y tirón en la plaza
 GYM = {"maquina", "mancuernas", "bandas", "rueda", "cajon"}
 ZONAS = {"Tren superior": {"empuje", "tiron", "hombro", "habilidad"}, "Piernas": {"piernas", "velocidad"}, "Core": {"core"}}
-INF = ("sentadilla profunda", "tobillo", "estocada", "isquio", "apertura")
-SUP = ("escapular", "rotacion", "bear")
+INF = ("sentadilla profunda", "tobillo", "estocada", "isquio", "apertura", "hip cars", "ankle cars", "90/90", "cossack hold", "tibial", "pancake")
+SUP = ("escapular", "rotacion", "bear", "shoulder cars", "muneca")
+POST = ("peso muerto", "puente", "curl femoral", "hip thrust", "buenos dias", "bisagra", "isquios", "nordic curl")
+QUAD = ("sissy", "atg", "shrimp", "step down", "skater", "hindu", "wall sit", "sentadilla en pared", "cossack", "curl nordico inverso")
 PLANTILLAS = {
-    # pierna: pliometría de activación, luego pesado; extensión de cuádriceps y cadena posterior siempre
-    "pierna": [("piernas", None, 2, ("salto",)), ("velocidad", None, 1, None), ("piernas", True, 1, None),
+    # pierna (en casa, poco espacio): pliometría, velocidad estática por tiempo, pesado, extensión y cadena posterior siempre
+    "pierna": [("piernas", None, 2, ("salto",)), ("velocidad", None, 1, ("en el lugar",)), ("piernas", True, 1, None),
                ("piernas", None, 1, ("extension",)), ("core", None, 1, None),
-               ("piernas", None, 1, ("peso muerto", "puente", "curl femoral")), ("core", None, 1, None), ("movilidad", None, 1, INF)],
-    # empuje y tirón (plaza): pesado solo, biseries con sentadillas; el pino va como adicional en casa
+               ("piernas", None, 1, POST), ("core", None, 1, None),
+               ("piernas", False, 1, QUAD), ("movilidad", None, 1, INF)],
     "empuje": [("empuje", True, 1, None),
                ("empuje", False, 1, None), ("piernas", None, 1, ("sentadilla",)),
                ("empuje", False, 1, None), ("piernas", None, 1, ("sentadilla",)),
@@ -65,6 +67,8 @@ def rango(e):
     seg = e["tipo_medida"] == "segundos"
     if e["tipo_medida"] == "metros":
         return f"{m} m"
+    if e["categoria"] == "velocidad" and seg:
+        return f"{m} s"
     if e.get("_plio"):
         return f"{max(m - 2, 3)}-{m} reps"
     if e["categoria"] == "habilidad":
@@ -132,6 +136,25 @@ def asignar(fechas, hist):
     return res
 
 
+def tiempo(lista):
+    """Minutos reales de la sesión: 5 de calentamiento + bloques, con el descanso compartido en las biseries."""
+    plio = [e for e in lista if e.get("_plio")]
+    movs = [e for e in lista if e["categoria"] == "movilidad" and not e.get("_plio")]
+    cuerpo = [e for e in lista if not e.get("_plio") and e["categoria"] != "movilidad"]
+    t = 5 + sum(minutos(e) for e in plio + movs)
+    i = 0
+    while i < len(cuerpo):
+        e = cuerpo[i]
+        sig = cuerpo[i + 1] if i + 1 < len(cuerpo) else None
+        if sig and puede_par(e) and puede_par(sig):
+            t += min(series_de(e), series_de(sig)) * (e["seg_trabajo"] + sig["seg_trabajo"] + 60) / 60
+            i += 2
+        else:
+            t += minutos(e)
+            i += 1
+    return t
+
+
 CALENT = {
     "pierna": "Calentamiento (5 min): sentadilla profunda sostenida 1 min · movilidad de tobillo 10 por lado · Cossack squat 8 por lado · saltos suaves 30 s · balanceo de piernas 10 por lado",
     "empuje": "Calentamiento (5 min): rotaciones de hombros x10 · flexiones escapulares x10 · escapulares colgado en la barra x8 · colgarse 20 s",
@@ -148,17 +171,14 @@ def armar_dia(ej, tipo, equipo, nmax, rng, tope):
             usados.add(e["nombre"])
             lista.append(dict(e, _plio=True) if plio else e)
     def intocable(e):  # lo que no se recorta: fuerza principal, extensión de cuádriceps y, con tiempo, pliometría y habilidades
-        return e["es_fijo"] or "extension" in e["nombre"].lower() or (tope >= 30 and (e.get("_plio") or e["categoria"] in ("habilidad", "movilidad")))
+        return e["es_fijo"] or "extension" in e["nombre"].lower() or (tipo == "pierna" and e["categoria"] == "piernas" and any(k in e["nombre"].lower() for k in POST)) or (tope >= 30 and (e.get("_plio") or e["categoria"] in ("habilidad", "movilidad")))
 
-    total = 5 + sum(minutos(e) for e in lista)  # 5 min de calentamiento
-    while total > tope and len(lista) > 2:
+    while tiempo(lista) > tope and len(lista) > 2:
         cand = [e for e in lista if not intocable(e)]
         if not cand:
             break
-        x = cand[-1]
-        lista.remove(x)
-        total -= minutos(x)
-    return lista, round(total)
+        lista.remove(cand[-1])
+    return lista, round(tiempo(lista))
 
 
 def puede_par(e):
@@ -192,13 +212,16 @@ def texto_dia(titulo, tipo, lista, total, nota):
     return "\n".join(out)
 
 
-def generar_plan(ej, fechas, hist, equipo, nmax, semilla, tope=45):
+def generar_plan(ej, fechas, hist, equipo, nmax, semilla, tope=40):
     rng = random.Random(semilla)
     bloques = []
     for f, (tipo, dias) in asignar(fechas, hist).items():
         lista, total = armar_dia(ej, tipo, equipo, nmax, rng, tope)
         nota = f"· hace {dias} días que no lo trabajas" if dias < 99 else "· sin registros recientes de este día"
-        bloques.append(texto_dia(f"{DIAS[f.weekday()].upper()} {f.strftime('%d/%m')} · {TITULOS[tipo]}", tipo, lista, total, nota))
+        t = texto_dia(f"{DIAS[f.weekday()].upper()} {f.strftime('%d/%m')} · {TITULOS[tipo]}", tipo, lista, total, nota)
+        if tipo != "pierna" and tope - total >= 3:
+            t += f"\nCancha: al terminar, corre en la cancha unos {tope - total} min (trote continuo o piques) hasta completar {tope} min."
+        bloques.append(t)
     return "\n\n".join(bloques)
 
 
@@ -263,6 +286,43 @@ def recomendar(ej, mins, energia, dolor, zonas, hist, equipo, hoy, modo="auto"):
     return titulo + "\n" + "\n".join(cuerpo)
 
 
+def velocidad_100(semana):
+    acel, vmax = {1: ("3 x 30 m", "3 x 50 m"), 2: ("3 x 30 m", "3 x 50 m"), 3: ("3 x 30 m", "3 x 60 m"), 4: ("2 x 30 m", "2 x 40 m")}[semana]
+    nota = " (semana de descarga)" if semana == 4 else ""
+    return "\n".join([
+        f"ADICIONAL VELOCIDAD 100 m · semana {semana} de 4{nota} · en la cancha, 35-45 min, intensidad 90-95%",
+        "1) Calentamiento (10 min): trote suave 3 min · movilidad de tobillos 10 por lado · movilidad de cadera 10 por lado · balanceo de piernas 10 por lado · skipping A 2 x 20 m · talones al glúteo 2 x 20 m",
+        "2) Técnica de carrera (5 min): salidas inclinadas 3 x 10 m · desplazamientos laterales 2 x 15 m · descanso 30-45 s",
+        f"3) Aceleración: {acel} · descanso 2 min · potencia en los primeros metros",
+        f"4) Velocidad máxima: {vmax} · descanso 3 min · frecuencia, coordinación y zancada",
+        "5) Potencia de piernas (biserie, 3 rondas, descanso 60-90 s): saltos horizontales x4 + sentadilla búlgara con salto 5 por pierna",
+        "6) Vuelta a la calma (3 min): caminata suave, flexores de cadera, tobillos, isquios y gemelos",
+        "Máximo 1 vez por semana. Si vienes cargado de piernas, mejor déjalo para otro día."])
+
+
+def semana_ciclo(cli):
+    try:
+        n = cli.table("sesiones").select("id", count="exact").eq("tipo_dia", "velocidad_100m").execute().count or 0
+    except Exception:
+        n = 0
+    return n % 4 + 1
+
+
+def flow(ej, equipo):
+    rng = random.Random()
+    loco = [e for e in ej if e["categoria"] == "locomocion" and e["nivel"] <= 2]
+    mov = [e for e in ej if e["categoria"] == "movilidad" and e["nivel"] <= 2 and e["tipo_medida"] != "metros" and set(e["equipo"]) <= set(equipo)]
+    if len(loco) < 4:
+        return "No hay suficientes ejercicios de locomoción en el catálogo."
+    out = ["ADICIONAL MOVIMIENTO · ≈ 15-20 min (en casa, bastan 2-3 m: en el lugar o ida y vuelta)",
+           "Calentamiento (3 min): círculos lentos de muñecas, hombros y cadera",
+           "Flow: 3 rondas encadenando estos 4 movimientos, 30 s cada uno, descanso 1 min entre rondas:"]
+    out += [f"- {e['nombre']}: {e['notas_tecnicas']}" for e in rng.sample(loco, 4)]
+    out.append("Movilidad final (3 min):")
+    out += [f"- {e['nombre']}: {presc(e, 2)} · {e['notas_tecnicas']}" for e in rng.sample(mov, min(2, len(mov)))]
+    return "\n".join(out)
+
+
 # ---------- pantalla ----------
 def tab_planificar(ejercicios, cli):
     hoy = date.today()
@@ -277,8 +337,8 @@ def tab_planificar(ejercicios, cli):
         if col.checkbox(f"{DIAS[i][:3]} {f.day}", key=f"dia_{f}", disabled=f < hoy):
             fechas.append(f)
     with st.expander("Duración, equipo y dificultad"):
-        tope = st.select_slider("Duración por sesión (min)", options=[20, 30, 45], value=45, key="tope")
-        equipo = st.multiselect("Equipo disponible esta semana", EQUIPO, default=EQUIPO)
+        tope = st.select_slider("Duración por sesión (min)", options=[20, 30, 40], value=40, key="tope")
+        equipo = st.multiselect("Equipo disponible esta semana", EQUIPO, default=[e for e in EQUIPO if e != "ancla"], help="Marca \"ancla\" si tienes dónde enganchar los pies (Nordic curl)")
         nmax = st.slider("Dificultad máxima de ejercicios", 1, 6, 2, help="Empieza en 2 y súbela cuando domines los ejercicios")
     if len(fechas) > 3:
         st.warning("Marca máximo 3 días.")
@@ -299,8 +359,16 @@ def tab_planificar(ejercicios, cli):
     energia = c2.slider("Energía hoy", 1, 5, 3, key="adic_energia")
     dolor = c3.slider("Dolor muscular", 1, 5, 2, key="adic_dolor")
     zonas = st.multiselect("Zona con molestia (opcional)", list(ZONAS), key="adic_zonas")
-    modo = st.radio("Tipo", ["Recomendado", "Parada de manos (casa)"], horizontal=True, key="adic_modo")
+    modo = st.radio("Tipo", ["Recomendado", "Parada de manos (casa)", "Velocidad 100 m (cancha)", "Movimiento / flow (casa)"], horizontal=True, key="adic_modo")
+    semana = 1
+    if modo.startswith("Velocidad"):
+        semana = st.selectbox("Semana del ciclo", [1, 2, 3, 4], index=semana_ciclo(cli) - 1, key="vel_sem", help="Se calcula según tus sesiones registradas como velocidad_100m; puedes cambiarla")
     if st.button("Recomendar adicional"):
-        st.session_state["adicional"] = recomendar(ejercicios, mins, energia, dolor, zonas, hist, equipo, hoy, "pino" if modo.startswith("Parada") else "auto")
+        if modo.startswith("Velocidad"):
+            st.session_state["adicional"] = velocidad_100(semana)
+        elif modo.startswith("Movimiento"):
+            st.session_state["adicional"] = flow(ejercicios, equipo)
+        else:
+            st.session_state["adicional"] = recomendar(ejercicios, mins, energia, dolor, zonas, hist, equipo, hoy, "pino" if modo.startswith("Parada") else "auto")
     if st.session_state.get("adicional"):
         st.code(st.session_state["adicional"], language=None)
