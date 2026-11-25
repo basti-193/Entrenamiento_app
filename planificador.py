@@ -7,7 +7,9 @@ DIAS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Doming
 EQUIPO = ["barra", "paralelas", "trx", "mancuernas", "kettlebell", "maquina", "bandas", "cajon", "rueda", "cancha"]
 ORDEN = ["pierna", "empuje", "tiron"]
 TIPO_MAP = {"tiron": "tiron", "habilidades_empuje": "empuje", "piernas_velocidad": "pierna"}
-EQ_TIPO = {"pierna": {"mancuernas", "bandas", "cajon", "cancha", "trx", "rueda", "maquina", "kettlebell"}}  # pierna = en casa
+CASA = {"mancuernas", "bandas", "cajon", "cancha", "trx", "rueda", "maquina", "kettlebell"}
+PLAZA = {"barra", "paralelas", "bandas"}
+EQ_TIPO = {"pierna": CASA, "empuje": PLAZA, "tiron": PLAZA}  # pierna en casa; empuje y tirón en la plaza
 GYM = {"maquina", "mancuernas", "bandas", "rueda", "cajon"}
 ZONAS = {"Tren superior": {"empuje", "tiron", "hombro", "habilidad"}, "Piernas": {"piernas", "velocidad"}, "Core": {"core"}}
 PLANTILLAS = {
@@ -15,7 +17,7 @@ PLANTILLAS = {
     "empuje": [("habilidad", None, 1, ("handstand", "wall", "planche", "l-sit", "shoulder", "sentado")), ("empuje", True, 1, None), ("empuje", False, 2, None), ("core", None, 1, None)],
     "tiron": [("habilidad", None, 1, ("muscle", "transicion")), ("tiron", True, 1, None), ("tiron", False, 2, None), ("core", None, 1, None)],
 }
-TITULOS = {"pierna": "PIERNA + VELOCIDAD (en casa)", "empuje": "EMPUJE + HABILIDADES", "tiron": "TIRÓN + HABILIDADES"}
+TITULOS = {"pierna": "PIERNA + VELOCIDAD (en casa)", "empuje": "EMPUJE + HABILIDADES (plaza)", "tiron": "TRACCIÓN + HABILIDADES (plaza)"}
 
 
 # ---------- utilidades ----------
