@@ -13,26 +13,38 @@ EQ_TIPO = {"pierna": CASA, "empuje": PLAZA, "tiron": PLAZA}  # pierna en casa; e
 GYM = {"maquina", "mancuernas", "bandas", "rueda", "cajon"}
 ZONAS = {"Tren superior": {"empuje", "tiron", "hombro", "habilidad"}, "Piernas": {"piernas", "velocidad"}, "Core": {"core"}}
 PLANTILLAS = {
-    "pierna": [("velocidad", None, 1, None), ("piernas", True, 1, None), ("piernas", False, 2, None), ("core", None, 1, None), ("movilidad", None, 1, None)],
-    "empuje": [("habilidad", None, 1, ("handstand", "wall", "planche", "l-sit", "shoulder", "sentado")), ("empuje", True, 1, None), ("empuje", False, 2, None), ("core", None, 1, None)],
-    "tiron": [("habilidad", None, 1, ("muscle", "transicion")), ("tiron", True, 1, None), ("tiron", False, 2, None), ("core", None, 1, None)],
+    # pierna: pliometría de activación, luego pesado y biseries (la extensión de cuádriceps va siempre)
+    "pierna": [("piernas", None, 2, ("salto",)), ("velocidad", None, 1, None), ("piernas", True, 1, None),
+               ("piernas", None, 1, ("extension",)), ("core", None, 1, None),
+               ("piernas", False, 1, None), ("core", None, 1, None), ("movilidad", None, 1, None)],
+    # empuje y tirón: ejercicio pesado solo y biseries con sentadillas entre series
+    "empuje": [("habilidad", None, 1, ("handstand", "wall")), ("empuje", True, 1, None),
+               ("empuje", False, 1, None), ("piernas", None, 1, ("sentadilla",)),
+               ("empuje", False, 1, None), ("piernas", None, 1, ("sentadilla",)), ("habilidad", None, 1, ("l-sit", "sentado"))],
+    "tiron": [("habilidad", None, 1, ("muscle", "transicion")), ("tiron", True, 1, None),
+              ("tiron", False, 1, None), ("piernas", None, 1, ("sentadilla",)),
+              ("tiron", False, 1, None), ("piernas", None, 1, ("sentadilla",)), ("core", None, 1, None)],
 }
 TITULOS = {"pierna": "PIERNA + VELOCIDAD (en casa)", "empuje": "EMPUJE + HABILIDADES (plaza)", "tiron": "TRACCIÓN + HABILIDADES (plaza)"}
 
 
 # ---------- utilidades ----------
-def elegir(ej, slot, equipo, nmax, rng, usados):
+def elegir(ej, slot, equipo, nmax, rng, usados, sin_saltos=False):
     cat, fijo, n, kw = slot
     c = [e for e in ej if e["categoria"] == cat and set(e["equipo"]) <= equipo and e["nivel"] <= nmax and e["nombre"] not in usados]
     if fijo is not None:
         c = [e for e in c if e["es_fijo"] == fijo]
     if kw:
         c = [e for e in c if any(k in e["nombre"].lower() for k in kw)]
+    if sin_saltos and not (kw and "salto" in kw):
+        c = [e for e in c if "salto" not in e["nombre"].lower()]
     rng.shuffle(c)
     return c[:n]
 
 
 def series_de(e):
+    if e.get("_plio"):
+        return 2
     if e["categoria"] == "velocidad":
         return 4
     return 4 if e["es_fijo"] else (2 if e["categoria"] == "movilidad" else 3)
@@ -86,9 +98,10 @@ def armar_dia(ej, tipo, equipo, nmax, rng):
     eq = set(equipo) & EQ_TIPO.get(tipo, set(EQUIPO))
     usados, lista = set(), []
     for slot in PLANTILLAS[tipo]:
-        for e in elegir(ej, slot, eq, nmax, rng, usados):
+        plio = tipo == "pierna" and bool(slot[3]) and "salto" in slot[3]
+        for e in elegir(ej, slot, eq, nmax, rng, usados, tipo == "pierna"):
             usados.add(e["nombre"])
-            lista.append(e)
+            lista.append(dict(e, _plio=True) if plio else e)
     total = 8 + sum(minutos(e) for e in lista)  # 6 min calentamiento + 2 cierre
     while total > 45 and len(lista) > 3:
         total -= minutos(lista.pop())
@@ -97,6 +110,11 @@ def armar_dia(ej, tipo, equipo, nmax, rng):
 
 def texto_dia(titulo, lista, total, nota):
     out = [f"{titulo} (≈ {total} min) {nota}", "Calentamiento (6 min): movilidad de hombros, tobillos y cadera + 2 series suaves del primer ejercicio"]
+    plio = [e for e in lista if e.get("_plio")]
+    lista = [e for e in lista if not e.get("_plio")]
+    if plio:
+        out.append("Activación pliométrica (antes de lo pesado, máxima intención, sin llegar a cansarte):")
+        out += [f"   - {e['nombre']}: {presc(e, 2)} · descanso {e['seg_descanso']} s · {e['notas_tecnicas']}" for e in plio]
     i, n = 0, 1
     while i < len(lista):
         e = lista[i]
@@ -191,7 +209,7 @@ def tab_planificar(ejercicios, cli):
             fechas.append(f)
     with st.expander("Equipo y dificultad"):
         equipo = st.multiselect("Equipo disponible esta semana", EQUIPO, default=EQUIPO)
-        nmax = st.slider("Dificultad máxima de ejercicios", 1, 6, 3, help="Súbela a medida que progreses")
+        nmax = st.slider("Dificultad máxima de ejercicios", 1, 6, 2, help="Empieza en 2 y súbela cuando domines los ejercicios")
     if len(fechas) > 3:
         st.warning("Marca máximo 3 días.")
     elif st.button("Planificar semana", type="primary", disabled=not fechas):
