@@ -207,10 +207,10 @@ def tab_planificar(ejercicios, cli):
     st.divider()
     st.subheader("Adicional de hoy")
     c1, c2, c3 = st.columns(3)
-    mins = c1.select_slider("Tiempo (min)", options=[10, 15, 20, 25, 30, 40, 50, 60], value=20)
-    energia = c2.slider("Energía hoy", 1, 5, 3)
-    dolor = c3.slider("Dolor muscular", 1, 5, 2)
-    zonas = st.multiselect("Zona con molestia (opcional)", list(ZONAS))
+    mins = c1.select_slider("Tiempo (min)", options=[10, 15, 20, 25, 30, 40, 50, 60], value=20, key="adic_mins")
+    energia = c2.slider("Energía hoy", 1, 5, 3, key="adic_energia")
+    dolor = c3.slider("Dolor muscular", 1, 5, 2, key="adic_dolor")
+    zonas = st.multiselect("Zona con molestia (opcional)", list(ZONAS), key="adic_zonas")
     if st.button("Recomendar adicional"):
         st.session_state["adicional"] = recomendar(ejercicios, mins, energia, dolor, zonas, hist, equipo, hoy)
     if st.session_state.get("adicional"):
