@@ -12,18 +12,22 @@ PLAZA = {"barra", "paralelas", "bandas"}
 EQ_TIPO = {"pierna": CASA, "empuje": PLAZA, "tiron": PLAZA}  # pierna en casa; empuje y tirón en la plaza
 GYM = {"maquina", "mancuernas", "bandas", "rueda", "cajon"}
 ZONAS = {"Tren superior": {"empuje", "tiron", "hombro", "habilidad"}, "Piernas": {"piernas", "velocidad"}, "Core": {"core"}}
+INF = ("sentadilla profunda", "tobillo", "estocada", "isquio", "apertura")
+SUP = ("escapular", "rotacion", "bear")
 PLANTILLAS = {
-    # pierna: pliometría de activación, luego pesado y biseries (la extensión de cuádriceps va siempre)
+    # pierna: pliometría de activación, luego pesado; extensión de cuádriceps y cadena posterior siempre
     "pierna": [("piernas", None, 2, ("salto",)), ("velocidad", None, 1, None), ("piernas", True, 1, None),
                ("piernas", None, 1, ("extension",)), ("core", None, 1, None),
-               ("piernas", False, 1, None), ("core", None, 1, None), ("movilidad", None, 1, ("sentadilla profunda", "tobillo", "estocada", "isquio", "apertura"))],
-    # empuje y tirón: ejercicio pesado solo y biseries con sentadillas entre series
-    "empuje": [("habilidad", None, 1, ("handstand", "wall")), ("empuje", True, 1, None),
+               ("piernas", None, 1, ("peso muerto", "puente", "curl femoral")), ("core", None, 1, None), ("movilidad", None, 1, INF)],
+    # empuje y tirón (plaza): pesado solo, biseries con sentadillas; el pino va como adicional en casa
+    "empuje": [("empuje", True, 1, None),
                ("empuje", False, 1, None), ("piernas", None, 1, ("sentadilla",)),
-               ("empuje", False, 1, None), ("piernas", None, 1, ("sentadilla",)), ("habilidad", None, 1, ("l-sit", "sentado")), ("movilidad", None, 1, ("escapular", "rotacion", "bear"))],
+               ("empuje", False, 1, None), ("piernas", None, 1, ("sentadilla",)),
+               ("core", None, 1, None), ("habilidad", None, 1, ("l-sit", "sentado")), ("movilidad", None, 1, SUP)],
     "tiron": [("habilidad", None, 1, ("muscle", "transicion")), ("tiron", True, 1, None),
+              ("tiron", None, 1, ("remo",)), ("piernas", None, 1, ("sentadilla",)),
               ("tiron", False, 1, None), ("piernas", None, 1, ("sentadilla",)),
-              ("tiron", False, 1, None), ("piernas", None, 1, ("sentadilla",)), ("core", None, 1, None), ("movilidad", None, 1, ("escapular", "rotacion", "bear"))],
+              ("core", None, 1, None), ("movilidad", None, 1, SUP)],
 }
 TITULOS = {"pierna": "PIERNA + VELOCIDAD (en casa)", "empuje": "EMPUJE + HABILIDADES (plaza)", "tiron": "TRACCIÓN + HABILIDADES (plaza)"}
 
@@ -140,7 +144,7 @@ def armar_dia(ej, tipo, equipo, nmax, rng, tope):
     usados, lista = set(), []
     for slot in PLANTILLAS[tipo]:
         plio = tipo == "pierna" and bool(slot[3]) and "salto" in slot[3]
-        for e in elegir(ej, slot, eq, nmax, rng, usados, tipo == "pierna"):
+        for e in elegir(ej, slot, eq, nmax, rng, usados, True):
             usados.add(e["nombre"])
             lista.append(dict(e, _plio=True) if plio else e)
     def intocable(e):  # lo que no se recorta: fuerza principal, extensión de cuádriceps y, con tiempo, pliometría y habilidades
@@ -212,10 +216,19 @@ def pick(base, cats, n, rng, usados, solo_reps=False):
     return sel
 
 
-def recomendar(ej, mins, energia, dolor, zonas, hist, equipo, hoy):
+def recomendar(ej, mins, energia, dolor, zonas, hist, equipo, hoy, modo="auto"):
     rng, usados = random.Random(), set()
     excl = set().union(*[ZONAS[z] for z in zonas]) if zonas else set()
     base = [e for e in ej if e["categoria"] not in excl and set(e["equipo"]) <= set(equipo) and e["nivel"] <= 2]
+    if modo == "pino":
+        por = {e["nombre"]: e for e in base}
+        lista = [por[n] for n in ("Shoulder taps en plancha", "Wall walk", "Handstand en pared") if n in por]
+        if not lista:
+            return "No encontré ejercicios de parada de manos compatibles con tu equipo y tus molestias."
+        cuerpo = ["Calentamiento (3 min): círculos de muñecas, apoyos de palma, hombros y flexiones escapulares x10",
+                  "Necesitas una pared libre. Si pierdes la técnica, termina el bloque."]
+        cuerpo += [linea(i, e, 4) for i, e in enumerate(lista, 1)]
+        return "ADICIONAL PARADA DE MANOS · ≈ 15 min (en casa, junto a una pared)\n" + "\n".join(cuerpo)
     if carga_alta(hist, hoy, energia, dolor):
         lista = pick(base, ["movilidad"], 3, rng, usados) + pick(base, ["core"], 1, rng, usados)
         titulo = "ADICIONAL SUAVE · 15 min (tu carga está alta: hoy toca soltar, no sumar)"
@@ -286,7 +299,8 @@ def tab_planificar(ejercicios, cli):
     energia = c2.slider("Energía hoy", 1, 5, 3, key="adic_energia")
     dolor = c3.slider("Dolor muscular", 1, 5, 2, key="adic_dolor")
     zonas = st.multiselect("Zona con molestia (opcional)", list(ZONAS), key="adic_zonas")
+    modo = st.radio("Tipo", ["Recomendado", "Parada de manos (casa)"], horizontal=True, key="adic_modo")
     if st.button("Recomendar adicional"):
-        st.session_state["adicional"] = recomendar(ejercicios, mins, energia, dolor, zonas, hist, equipo, hoy)
+        st.session_state["adicional"] = recomendar(ejercicios, mins, energia, dolor, zonas, hist, equipo, hoy, "pino" if modo.startswith("Parada") else "auto")
     if st.session_state.get("adicional"):
         st.code(st.session_state["adicional"], language=None)
