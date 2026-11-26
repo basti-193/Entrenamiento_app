@@ -1,14 +1,15 @@
 import random
+import re
 from datetime import date, timedelta
 
 import streamlit as st
 
 DIAS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
-EQUIPO = ["barra", "paralelas", "trx", "mancuernas", "kettlebell", "maquina", "bandas", "cajon", "rueda", "cancha", "ancla"]
-ORDEN = ["pierna", "empuje", "tiron"]
+EQUIPO = ["barra", "paralelas", "trx", "mancuernas", "kettlebell", "maquina", "bandas", "cajon", "rueda", "cancha", "ancla", "agarre_neutro"]
+ORDEN = ["tiron", "empuje", "pierna"]  # en empate gana el primero: tracción es la prioridad
 TIPO_MAP = {"tiron": "tiron", "habilidades_empuje": "empuje", "piernas_velocidad": "pierna"}
 CASA = {"mancuernas", "bandas", "cajon", "cancha", "trx", "rueda", "maquina", "kettlebell", "ancla"}
-PLAZA = {"barra", "paralelas", "bandas"}
+PLAZA = {"barra", "paralelas", "bandas", "agarre_neutro"}
 EQ_TIPO = {"pierna": CASA, "empuje": PLAZA, "tiron": PLAZA}  # pierna en casa; empuje y tirón en la plaza
 GYM = {"maquina", "mancuernas", "bandas", "rueda", "cajon"}
 ZONAS = {"Tren superior": {"empuje", "tiron", "hombro", "habilidad"}, "Piernas": {"piernas", "velocidad"}, "Core": {"core"}}
@@ -16,19 +17,32 @@ INF = ("sentadilla profunda", "tobillo", "estocada", "isquio", "apertura", "hip 
 SUP = ("escapular", "rotacion", "bear", "shoulder cars", "muneca")
 POST = ("peso muerto", "puente", "curl femoral", "hip thrust", "buenos dias", "bisagra", "isquios", "nordic curl")
 QUAD = ("sissy", "atg", "shrimp", "step down", "skater", "hindu", "wall sit", "sentadilla en pared", "cossack", "curl nordico inverso")
+# Cadenas de progresión: cada ejercicio es una variante más difícil del anterior
+CADENAS = {
+    "dominada": ["Dominada negativa", "Dominada estricta", "Dominada pecho a barra", "Dominada explosiva", "Transicion muscle-up", "Muscle-up"],
+    "fondo": ["Fondos entre sillas", "Fondo en paralelas", "Fondo en barra recta"],
+    "flexion": ["Flexion", "Flexion declinada", "Flexion diamante", "Flexion pseudo planche", "Flexion arquero", "Flexion explosiva"],
+    "lsit": ["Elevacion de piernas sentado", "L-sit con rodillas flexionadas", "L-sit", "L-sit a tuck planche"],
+    "unilateral": ["Step down con cajon", "ATG split squat", "Sentadilla bulgara con mancuernas", "Pistol asistida en TRX", "Pistol squat", "Shrimp squat"],
+    "bisagra": ["Buenos dias", "Puente de gluteo a una pierna", "Peso muerto rumano a una pierna", "Caminata de isquios (walkouts)", "Nordic curl"],
+}
+INICIO = {"dominada": "Dominada estricta", "fondo": "Fondo en paralelas", "flexion": "Flexion declinada",
+          "lsit": "L-sit con rodillas flexionadas", "unilateral": "Sentadilla bulgara con mancuernas", "bisagra": "Puente de gluteo a una pierna"}
+FUERZA = {"dominada", "fondo", "unilateral"}  # se tratan como ejercicio pesado: solo, 4 series, 90-120 s
+FAM_DE = {n: f for f, ns in CADENAS.items() for n in ns}
 PLANTILLAS = {
     # pierna (en casa, poco espacio): pliometría, velocidad estática por tiempo, pesado, extensión y cadena posterior siempre
-    "pierna": [("piernas", None, 2, ("salto",)), ("velocidad", None, 1, ("en el lugar",)), ("piernas", True, 1, None),
+    "pierna": [("piernas", None, 2, ("salto",)), ("velocidad", None, 1, ("en el lugar",)), ("@unilateral",),
                ("piernas", None, 1, ("extension",)), ("core", None, 1, None),
-               ("piernas", None, 1, POST), ("core", None, 1, None),
+               ("@bisagra",), ("core", None, 1, None),
                ("piernas", False, 1, QUAD), ("movilidad", None, 1, INF)],
-    "empuje": [("empuje", True, 1, None),
+    "empuje": [("@fondo",), ("tiron", True, 1, ("dominada estricta",)),
+               ("@flexion",), ("piernas", None, 1, ("sentadilla",)),
                ("empuje", False, 1, None), ("piernas", None, 1, ("sentadilla",)),
-               ("empuje", False, 1, None), ("piernas", None, 1, ("sentadilla",)),
-               ("core", None, 1, None), ("habilidad", None, 1, ("l-sit", "sentado")), ("movilidad", None, 1, SUP)],
-    "tiron": [("habilidad", None, 1, ("muscle", "transicion")), ("tiron", True, 1, None),
+               ("core", None, 1, None), ("@lsit",), ("movilidad", None, 1, SUP)],
+    "tiron": [("habilidad", None, 1, ("muscle", "transicion")), ("@dominada",),
               ("tiron", None, 1, ("remo",)), ("piernas", None, 1, ("sentadilla",)),
-              ("tiron", False, 1, None), ("piernas", None, 1, ("sentadilla",)),
+              ("tiron", False, 1, ("chin-up", "agarre")), ("piernas", None, 1, ("sentadilla",)),
               ("core", None, 1, None), ("movilidad", None, 1, SUP)],
 }
 TITULOS = {"pierna": "PIERNA + VELOCIDAD (en casa)", "empuje": "EMPUJE + HABILIDADES (plaza)", "tiron": "TRACCIÓN + HABILIDADES (plaza)"}
@@ -49,7 +63,7 @@ def elegir(ej, slot, equipo, nmax, rng, usados, sin_saltos=False):
 
 
 def series_de(e):
-    if e.get("_plio"):
+    if e.get("_plio") or e.get("_liviana"):
         return 2
     c = e["categoria"]
     if c == "velocidad":
@@ -69,6 +83,8 @@ def rango(e):
         return f"{m} m"
     if e["categoria"] == "velocidad" and seg:
         return f"{m} s"
+    if e.get("_liviana"):
+        return "3-4 reps (deja 2 en reserva)"
     if e.get("_plio"):
         return f"{max(m - 2, 3)}-{m} reps"
     if e["categoria"] == "habilidad":
@@ -93,6 +109,8 @@ def presc(e, s):
 
 
 def descanso(e):
+    if e.get("_liviana"):
+        return "60-90 s"
     if e["categoria"] == "habilidad":
         return "30-60 s"
     if e["es_fijo"]:
@@ -106,7 +124,8 @@ def minutos(e):
 
 
 def linea(i, e, s):
-    return f"{i}) {e['nombre']}: {presc(e, s)} · descanso {descanso(e)}\n   Técnica: {e['notas_tecnicas']}"
+    meta = f"\n   Meta: 3 o más series de {techo(e)} en dos sesiones seguidas y pasas a {e['_sig']}" if e.get("_sig") else ""
+    return f"{i}) {e['nombre']}: {presc(e, s)} · descanso {descanso(e)}\n   Técnica: {e['notas_tecnicas']}{meta}"
 
 
 def ultimos(hist):
@@ -136,6 +155,58 @@ def asignar(fechas, hist):
     return res
 
 
+def techo(e):
+    """Tope del rango de repeticiones o segundos del ejercicio (lo que hay que lograr para subir de nivel)."""
+    return int(re.findall(r"\d+", rango(e))[-1])
+
+
+def actual(fam, ej, eq, dom):
+    """Ejercicio en el que estás en esa cadena: parte del inicio y sube cuando dominas el actual."""
+    por = {e["nombre"]: e for e in ej}
+    cad = [por[n] for n in CADENAS[fam] if n in por]
+    if not cad:
+        return None
+    idx = next((i for i, e in enumerate(cad) if e["nombre"] == INICIO[fam]), 0)
+    while idx + 1 < len(cad) and cad[idx]["nombre"] in dom:
+        idx += 1
+    while idx > 0 and not set(cad[idx]["equipo"]) <= eq:
+        idx -= 1
+    if not set(cad[idx]["equipo"]) <= eq:
+        return None
+    e = dict(cad[idx], es_fijo=True) if fam in FUERZA else dict(cad[idx])
+    if idx + 1 < len(cad):
+        e["_sig"] = cad[idx + 1]["nombre"]
+    return e
+
+
+def dominados(logs, ej):
+    """Ejercicios dominados: en sus dos últimas sesiones, 3 o más series, todas en el tope del rango."""
+    por_id = {e["id"]: e for e in ej}
+    ses = {}
+    for r in logs:
+        v = r["segundos"] if r["segundos"] is not None else r["reps"]
+        if v is not None:
+            ses.setdefault(r["ejercicio_id"], {}).setdefault(r["sesion_id"], []).append(v)
+    dom = set()
+    for eid, por_ses in ses.items():
+        e = por_id.get(eid)
+        if not e or e["nombre"] not in FAM_DE:
+            continue
+        t = techo(dict(e, es_fijo=True) if FAM_DE[e["nombre"]] in FUERZA else e)
+        ult = sorted(por_ses, reverse=True)[:2]
+        if len(ult) == 2 and all(len(por_ses[x]) >= 3 and min(por_ses[x]) >= t for x in ult):
+            dom.add(e["nombre"])
+    return dom
+
+
+@st.cache_data(ttl=60)
+def cargar_logs(_cli, hoy):
+    try:
+        return _cli.table("series_log").select("ejercicio_id,reps,segundos,sesion_id").order("sesion_id", desc=True).limit(1500).execute().data
+    except Exception:
+        return []
+
+
 def tiempo(lista):
     """Minutos reales de la sesión: 5 de calentamiento + bloques, con el descanso compartido en las biseries."""
     plio = [e for e in lista if e.get("_plio")]
@@ -162,14 +233,21 @@ CALENT = {
 }
 
 
-def armar_dia(ej, tipo, equipo, nmax, rng, tope):
+def armar_dia(ej, tipo, equipo, nmax, rng, tope, dom=frozenset()):
     eq = set(equipo) & EQ_TIPO.get(tipo, set(EQUIPO))
     usados, lista = set(), []
     for slot in PLANTILLAS[tipo]:
+        if slot[0].startswith("@"):
+            e = actual(slot[0][1:], ej, eq, dom)
+            if e and e["nombre"] not in usados:
+                usados.add(e["nombre"])
+                lista.append(e)
+            continue
         plio = tipo == "pierna" and bool(slot[3]) and "salto" in slot[3]
+        liviana = tipo == "empuje" and slot[0] == "tiron"
         for e in elegir(ej, slot, eq, nmax, rng, usados, True):
             usados.add(e["nombre"])
-            lista.append(dict(e, _plio=True) if plio else e)
+            lista.append(dict(e, _plio=plio) if plio else (dict(e, _liviana=True) if liviana else e))
     def intocable(e):  # lo que no se recorta: fuerza principal, extensión de cuádriceps y, con tiempo, pliometría y habilidades
         return e["es_fijo"] or "extension" in e["nombre"].lower() or (tipo == "pierna" and e["categoria"] == "piernas" and any(k in e["nombre"].lower() for k in POST)) or (tope >= 30 and (e.get("_plio") or e["categoria"] in ("habilidad", "movilidad")))
 
@@ -212,11 +290,11 @@ def texto_dia(titulo, tipo, lista, total, nota):
     return "\n".join(out)
 
 
-def generar_plan(ej, fechas, hist, equipo, nmax, semilla, tope=40):
+def generar_plan(ej, fechas, hist, equipo, nmax, semilla, tope=40, dom=frozenset()):
     rng = random.Random(semilla)
     bloques = []
     for f, (tipo, dias) in asignar(fechas, hist).items():
-        lista, total = armar_dia(ej, tipo, equipo, nmax, rng, tope)
+        lista, total = armar_dia(ej, tipo, equipo, nmax, rng, tope, dom)
         nota = f"· hace {dias} días que no lo trabajas" if dias < 99 else "· sin registros recientes de este día"
         t = texto_dia(f"{DIAS[f.weekday()].upper()} {f.strftime('%d/%m')} · {TITULOS[tipo]}", tipo, lista, total, nota)
         if tipo != "pierna" and tope - total >= 3:
@@ -324,33 +402,72 @@ def flow(ej, equipo):
 
 
 # ---------- pantalla ----------
+def cargar_plan(cli, lunes):
+    try:
+        r = cli.table("planes").select("texto,dias").eq("semana_inicio", str(lunes)).execute().data
+        return r[0] if r else None
+    except Exception:
+        return None
+
+
 def tab_planificar(ejercicios, cli):
     hoy = date.today()
     lunes = hoy - timedelta(days=hoy.weekday())
     hist = cargar_hist(cli, hoy)
+    guardado = cargar_plan(cli, lunes)
+    dom = dominados(cargar_logs(cli, hoy), ejercicios)
 
-    st.subheader(f"Semana del {lunes.strftime('%d/%m')}")
-    st.caption("Marca los días que puedes entrenar (máximo 3).")
-    fechas = []
-    for i, col in enumerate(st.columns(7)):
-        f = lunes + timedelta(days=i)
-        if col.checkbox(f"{DIAS[i][:3]} {f.day}", key=f"dia_{f}", disabled=f < hoy):
-            fechas.append(f)
     with st.expander("Duración, equipo y dificultad"):
         tope = st.select_slider("Duración por sesión (min)", options=[20, 30, 40], value=40, key="tope")
-        equipo = st.multiselect("Equipo disponible esta semana", EQUIPO, default=[e for e in EQUIPO if e != "ancla"], help="Marca \"ancla\" si tienes dónde enganchar los pies (Nordic curl)")
+        equipo = st.multiselect("Equipo disponible esta semana", EQUIPO, default=[e for e in EQUIPO if e not in ("ancla", "agarre_neutro")], help="Marca \"ancla\" si tienes dónde enganchar los pies (Nordic curl) y \"agarre_neutro\" si la barra tiene agarres paralelos")
         nmax = st.slider("Dificultad máxima de ejercicios", 1, 6, 2, help="Empieza en 2 y súbela cuando domines los ejercicios")
-    if len(fechas) > 3:
-        st.warning("Marca máximo 3 días.")
-    elif st.button("Planificar semana", type="primary", disabled=not fechas):
-        semilla = int(f"{lunes.isocalendar().year}{lunes.isocalendar().week:02d}")
-        st.session_state["plan"] = generar_plan(ejercicios, fechas, hist, equipo, nmax, semilla, tope)
-    plan = st.session_state.get("plan")
-    if plan:
-        st.code(plan, language=None)
-        if st.button("Guardar plan de la semana"):
-            cli.table("planes").upsert({"semana_inicio": str(lunes), "dias": [str(f) for f in fechas], "texto": plan}).execute()
-            st.success("Plan guardado")
+
+    st.subheader(f"Semana del {lunes.strftime('%d/%m')}")
+    if guardado and not st.session_state.get("rehacer"):
+        st.caption("Plan guardado de esta semana")
+        st.code(guardado["texto"], language=None)
+        if st.button("Rehacer plan"):
+            st.session_state["rehacer"] = True
+            st.session_state["variante"] = st.session_state.get("variante", 0) + 1
+            st.rerun()
+    else:
+        st.caption("Marca los días que puedes entrenar (máximo 3).")
+        fechas = []
+        for i, col in enumerate(st.columns(7)):
+            f = lunes + timedelta(days=i)
+            if col.checkbox(f"{DIAS[i][:3]} {f.day}", key=f"dia_{f}", disabled=f < hoy):
+                fechas.append(f)
+        if len(fechas) > 3:
+            st.warning("Marca máximo 3 días.")
+        elif st.button("Planificar semana", type="primary", disabled=not fechas):
+            iso = lunes.isocalendar()
+            semilla = int(f"{iso.year}{iso.week:02d}") + st.session_state.get("variante", 0)
+            texto = generar_plan(ejercicios, fechas, hist, equipo, nmax, semilla, tope, dom)
+            try:
+                cli.table("planes").upsert({"semana_inicio": str(lunes), "dias": [str(f) for f in fechas], "texto": texto}).execute()
+                st.session_state["rehacer"] = False
+                st.rerun()
+            except Exception as e:
+                st.error(f"No se pudo guardar el plan: {e}")
+                st.code(texto, language=None)
+        if guardado and st.button("Cancelar y volver al plan guardado"):
+            st.session_state["rehacer"] = False
+            st.rerun()
+
+    try:
+        ant = cli.table("planes").select("semana_inicio,texto").lt("semana_inicio", str(lunes)).order("semana_inicio", desc=True).limit(12).execute().data
+    except Exception:
+        ant = []
+    if ant:
+        with st.expander("Planes anteriores"):
+            sel = st.selectbox("Semana", [x["semana_inicio"] for x in ant], key="plan_ant")
+            st.code(next(x["texto"] for x in ant if x["semana_inicio"] == sel), language=None)
+
+    with st.expander("Tu progresión"):
+        for fam in CADENAS:
+            e = actual(fam, ejercicios, set(equipo), dom)
+            if e:
+                st.write(f"**{fam.capitalize()}**: {e['nombre']} → " + (f"siguiente: {e['_sig']}" if e.get("_sig") else "último nivel de la cadena"))
 
     st.divider()
     st.subheader("Adicional de hoy")
